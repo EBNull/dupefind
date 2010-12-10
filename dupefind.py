@@ -43,15 +43,57 @@ def files_with_info(dir):
             hashes[1],
         )
         
-if __name__ == '__main__':
-    parser = OptionParser()
-    (options, args) = parser.parse_args()
-
-    if sys.platform == "win32":
-        import os, msvcrt
-        msvcrt.setmode(sys.stdout.fileno(), os.O_BINARY)
-
-    c = csv.writer(sys.stdout)
+def create_hashfile(dir, outstream):
+    c = csv.writer(outstream)
     for i in files_with_info(args[0]):
         c.writerow(i)
+        
+def create_dupefile(instream, outstream):
+    i = csv.reader(instream)
+    o = csv.writer(outstream)
+    hashgroups = {}
+    for row in i:
+        blah, file, fsize, ctime, mtime, atime, md5, sha1 = row
+        files = hashgroups.setdefault((md5, sha1), [])
+        files.append(row)
+    for hashgroup in hashgroups.itervalues():
+        if len(hashgroup) > 1:
+            for n in sorted(hashgroup, key=lambda r: r[1]): #Sort by name
+                o.writerow(n)
+        
+def main(argv):
+    parser = OptionParser()
+    parser.add_option("-c", "--hash", action="store_true", default=False, dest="action_hash", help='Create hashfile csv')
+    parser.add_option("-d", "--duplicates", action="store_true", default=False, dest="action_duplicates", help='Filter hashfile csv for duplicates')
     
+    parser.add_option("-o", "--out", action="store", type="string", dest="output_filename")
+    (options, args) = parser.parse_args(argv)
+    
+    saw_action = (getattr(options, attr) for attr in ("action_hash", "action_duplicates"))
+    if not any(saw_action):
+        parser.print_help()
+        sys.stdout.write("\nNeed at least one action.\n\n")
+        return
+
+    if len([i for i in saw_action if i > 1]):
+        parser.print_help()
+        sys.stdout.write("\nNeed only one action.\n\n")
+        return
+    
+    if options.output_filename in ('-', ''):
+        if sys.platform == "win32":
+            import os, msvcrt
+            msvcrt.setmode(sys.stdout.fileno(), os.O_BINARY)
+        outfile = sys.stdout
+    else:
+        outfile = open(options.output_filename, "wb")
+        
+    if options.action_hash:
+        create_hashfile(outfile)
+    if options.action_duplicates:
+        infile = open(args[0], "rb")
+        create_dupefile(infile, outfile)
+    
+    
+if __name__ == '__main__':
+    main(sys.argv)
