@@ -56,7 +56,7 @@ def create_dupefile(instream, outstream):
         blah, file, fsize, ctime, mtime, atime, md5, sha1 = row
         files = hashgroups.setdefault((md5, sha1), [])
         files.append(row)
-    for hashgroup in hashgroups.itervalues():
+    for hashgroup in sorted(hashgroups.itervalues(), key=lambda r: r[0][6]): #Sort by hash
         if len(hashgroup) > 1:
             for n in sorted(hashgroup, key=lambda r: r[1]): #Sort by name
                 o.writerow(n)
