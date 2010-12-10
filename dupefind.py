@@ -3,23 +3,31 @@ import sys
 import hashlib
 import datetime
 import csv
+import logging
 from optparse import OptionParser
 
-def recursive_file_list(dir):
+log = logging.getLogger()
+
+def recursive_file_list(dir, on_exception=None):
     """Breadth-first search of directory yeilding full paths"""
     subfolders = []
-    for basename in os.listdir(dir):
-        p = os.path.join(dir, basename)
-        if os.path.isdir(p):
-            subfolders.append(p)
-        else:
-            yield p
-        for f in subfolders:
-            for p in recursive_file_list(f):
+    try:
+        for basename in os.listdir(dir):
+            p = os.path.join(dir, basename)
+            if os.path.isdir(p):
+                subfolders.append(p)
+            else:
                 yield p
+            for f in subfolders:
+                for p in recursive_file_list(f, on_exception):
+                    yield p
+    except Exception:
+        log.exception("Exception in recursive_file_list")
+        if callable(on_exception):
+            on_exception(dir, sys.exc_info())
                 
-def files_with_info(dir):
-    for file in recursive_file_list(dir):
+def files_with_info(dir, on_exception=None):
+    for file in recursive_file_list(dir, on_exception):
         hashobjs = (hashlib.md5(), hashlib.sha1())
         try:
             contents = open(file, "rb").read()
@@ -96,4 +104,5 @@ def main(argv):
     
     
 if __name__ == '__main__':
+    logging.basicConfig()
     main(sys.argv)
