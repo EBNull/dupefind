@@ -18,9 +18,9 @@ def recursive_file_list(dir, on_exception=None):
                 subfolders.append(p)
             else:
                 yield p
-            for f in subfolders:
-                for p in recursive_file_list(f, on_exception):
-                    yield p
+        for f in subfolders:
+            for p in recursive_file_list(f, on_exception):
+                yield p
     except Exception:
         log.exception("Exception in recursive_file_list")
         if callable(on_exception):
