@@ -80,7 +80,7 @@ def main(argv):
         sys.stdout.write("\nNeed only one action.\n\n")
         return
     
-    if options.output_filename in ('-', ''):
+    if options.output_filename in ('-', '', None):
         if sys.platform == "win32":
             import os, msvcrt
             msvcrt.setmode(sys.stdout.fileno(), os.O_BINARY)
