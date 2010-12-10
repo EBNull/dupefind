@@ -91,7 +91,7 @@ def main(argv):
     if options.action_hash:
         create_hashfile(outfile)
     if options.action_duplicates:
-        infile = open(args[0], "rb")
+        infile = open(args[1], "rb")
         create_dupefile(infile, outfile)
     
     
