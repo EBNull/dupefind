@@ -45,7 +45,7 @@ def files_with_info(dir):
         
 def create_hashfile(dir, outstream):
     c = csv.writer(outstream)
-    for i in files_with_info(args[0]):
+    for i in files_with_info(dir):
         c.writerow(i)
         
 def create_dupefile(instream, outstream):
@@ -89,7 +89,7 @@ def main(argv):
         outfile = open(options.output_filename, "wb")
         
     if options.action_hash:
-        create_hashfile(outfile)
+        create_hashfile(args[1], outfile)
     if options.action_duplicates:
         infile = open(args[1], "rb")
         create_dupefile(infile, outfile)
