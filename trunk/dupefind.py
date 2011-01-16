@@ -11,8 +11,8 @@ from optparse import OptionParser
 from collections import namedtuple
 FileEntry = namedtuple('FileEntry', [
     'dirbase', #Relative subpath to file from starting path of generated hashfile
-    'dirname', 
-    'path',
+    'dirname', #Full dirname to file. Not really needed.
+    'path', #Full path to file
     'size',
     'ctime',
     'mtime',
@@ -20,11 +20,38 @@ FileEntry = namedtuple('FileEntry', [
     'md5',
     'sha1',
 ])
+def fe_to_unicode(fe):
+    fe = FileEntry(*fe)
+    return FileEntry(
+        fe.dirbase.decode('utf-8'),
+        fe.dirname.decode('utf-8'),
+        fe.path.decode('utf-8'),
+        fe.size,
+        fe.ctime,
+        fe.mtime,
+        fe.atime,
+        fe.md5,
+        fe.sha1,
+    )
+def fe_to_utf8(fe):
+    return FileEntry(
+        fe.dirbase.encode('utf-8'),
+        fe.dirname.encode('utf-8'),
+        fe.path.encode('utf-8'),
+        fe.size,
+        fe.ctime,
+        fe.mtime,
+        fe.atime,
+        fe.md5,
+        fe.sha1,
+    )
 
 log = logging.getLogger()
 
 def recursive_file_list(dir, on_exception=None):
     """Breadth-first search of directory yeilding full paths"""
+    dir = unicode(dir)
+    dir = os.path.realpath(dir)
     subfolders = []
     try:
         for basename in os.listdir(dir):
@@ -43,6 +70,7 @@ def recursive_file_list(dir, on_exception=None):
                 
 def files_with_info(dir, on_exception=None):
     """Generator yielding information about each file in a directory"""
+    dir = os.path.realpath(dir)
     for file in recursive_file_list(dir, on_exception):
         hashobjs = (hashlib.md5(), hashlib.sha1())
         try:
@@ -75,7 +103,7 @@ def create_hashfile(dir, outstream):
     """For a given dir, iterate through all the files and create a hashfile containing all the data from files_with_info"""
     c = csv.writer(outstream)
     for i in files_with_info(dir):
-        c.writerow(i)
+        c.writerow(fe_to_utf8(i))
         
 def create_dupefile(instream, outstream):
     """Given a hashfile, produce a dupefile (another csv) containing only duplicate entries"""
@@ -83,13 +111,13 @@ def create_dupefile(instream, outstream):
     o = csv.writer(outstream)
     hashgroups = {}
     for row in i:
-        row = FileEntry(row)
+        row = FileEntry(*fe_to_unicode(row))
         files = hashgroups.setdefault((row.md5, row.sha1), [])
         files.append(row)
     for hashgroup in sorted(hashgroups.itervalues(), key=lambda r: (r[0].md5, r[0].sha1)): #Sort by hash
         if len(hashgroup) > 1:
             for n in sorted(hashgroup, key=lambda r: r.path): #Sort by name
-                o.writerow(n)
+                o.writerow(fe_to_utf8(n))
 
 def choice_latest_mtime_keep_dupes(hashgroup):
     """Saves duplicate files by giving them a .dupe_# pre-extension"""
@@ -98,9 +126,9 @@ def choice_latest_mtime_keep_dupes(hashgroup):
     for i, n in enumerate(sorted(hashgroup, key=lambda r: r.mtime)): #Sort by mtime
         basename, ext = os.path.splitext(os.path.basename(n.path))
         if i == 0:
-            basename = "%s%s"%(basename, ext)
+            basename = u"%s%s"%(basename, ext)
         else:
-            basename = "%s%s%s"%(basename, '.dupe_%s'%(i), ext)
+            basename = u"%s%s%s"%(basename, u'.dupe_%s'%(i), ext)
         ret.append((n, os.path.join(n.dirbase, basename)))
     return ret
     
@@ -110,7 +138,7 @@ def choice_latest_mtime_drop_dupes(hashgroup):
     for i, n in enumerate(sorted(hashgroup, key=lambda r: r.mtime)): #Sort by mtime
         basename, ext = os.path.splitext(os.path.basename(n.path))
         if i == 0:
-            basename = "%s%s"%(basename, ext)
+            basename = u"%s%s"%(basename, ext)
             ret.append((n, os.path.join(n.dirbase, basename)))
         else:
             ret.append((n, None))
@@ -121,9 +149,9 @@ def fn_collision_rename(destfile):
     full_p, full_ext = os.path.splitext(destfile)
     count = 1
     while True:
-        middle = ".collision_%s"%(count)
+        middle = u".collision_%s"%(count)
         count += 1
-        dest = "%s%s%s"%(full_p, middle, full_ext)
+        dest = u"%s%s%s"%(full_p, middle, full_ext)
         if not os.path.exists(dest):
             return dest
 
@@ -171,20 +199,20 @@ def nodupe_copy(hashstream, dest_dir, choice_func=None, fn_collision_func=None, 
     i = csv.reader(hashstream)
     hashgroups = {}
     for row in i:
-        row = FileEntry(*row)
+        row = FileEntry(*fe_to_unicode(row))
         files = hashgroups.setdefault((row.md5, row.sha1), [])
         files.append(row)
     for hashgroup in sorted(hashgroups.itervalues(), key=lambda r: (r[0].md5, r[0].sha1)): #Sort by hash
         copydata = choice_func(hashgroup)
         for fileentry, dest_filename in copydata:
             if dest_filename is None:
-                log.debug("Skipping file %s", fileentry.path)
+                log.debug(u"Skipping file %s", fileentry.path)
             else:
                 dest = os.path.join(dest_dir, dest_filename)
-                log.debug("Copying file %s to %s", fileentry.path, dest)
+                log.debug(u"Copying file %s to %s", fileentry.path, dest)
                 if os.path.exists(dest):
                     newdest = fn_collision_func(dest)
-                    log.warning("%s already exists, collision resolved to %s", dest, newdest)
+                    log.warning(u"%s already exists, collision resolved to %s", dest, newdest)
                     dest = newdest
                 if not dry_run:
                     if not os.path.isdir(os.path.dirname(dest)):
@@ -195,7 +223,7 @@ def nodupe_copy(hashstream, dest_dir, choice_func=None, fn_collision_func=None, 
                     if sys.platform == 'win32':
                         copy_file_creation_time_win32(fileentry.path, dest)
                 else:
-                    logging.info("DRY: copy %s to %s", fileentry.path, dest)
+                    logging.info(u"DRY: copy %s to %s", fileentry.path, dest)
                     
         
 def main(argv):
@@ -230,13 +258,13 @@ def main(argv):
         outfile = open(options.output_filename, "wb")
         
     if options.action_hash:
-        create_hashfile(args[1], outfile)
+        create_hashfile(unicode(args[1]), outfile)
     if options.action_duplicates:
-        infile = open(args[1], "rb")
+        infile = open(unicode(args[1]), "rb")
         create_dupefile(infile, outfile)
     if options.action_nodupe_copy:
-        infile = open(args[1], "rb")
-        nodupe_copy(infile, args[2], dry_run=options.dry_run)
+        infile = open(unicode(args[1]), "rb")
+        nodupe_copy(infile, unicode(args[2]), dry_run=options.dry_run)
     
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
