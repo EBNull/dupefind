@@ -342,14 +342,17 @@ def main(argv):
         except Exception:
             log.exception("Couldn't aquire SeBackupPrivilege")
         else:
-            log.info("Aquired SeBackupPrivilege")
+            log.debug("Aquired SeBackupPrivilege")
         
     if options.action_hash:
+        log.info(u"Creating hashfile from %s", unicode(args[1]))
         create_hashfile(unicode(args[1]), outfile)
     if options.action_duplicates:
+        log.info(u"Creating dupefile from %s", unicode(args[1]))
         infile = open(unicode(args[1]), "rb")
         create_dupefile(infile, outfile)
     if options.action_nodupe_copy:
+        log.info(u"Copying without dupes from %s to %s", unicode(args[1]), unicode(args[2]))
         infile = open(unicode(args[1]), "rb")
         nodupe_copy(infile, unicode(args[2]), dry_run=options.dry_run)
     
