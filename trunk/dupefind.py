@@ -74,13 +74,19 @@ def files_with_info(dir, on_exception=None):
     for file in recursive_file_list(dir, on_exception):
         hashobjs = (hashlib.md5(), hashlib.sha1())
         try:
-            contents = open(file, "rb").read()
+            f = open(file, "rb")
+            while True:
+                data = f.read(4096) #4MB chunks
+                if not data:
+                    break
+                for h in hashobjs:
+                    h.update(data)
+            f.close()
         except IOError:
             hashes = (None, None)
         else:
             hashes = []
             for h in hashobjs:
-                h.update(contents)
                 hashes.append(h.hexdigest())
         hashobjs = None
         contents = ""
