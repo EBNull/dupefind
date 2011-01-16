@@ -1,6 +1,7 @@
 # -*- mode: python -*-
-a = Analysis([os.path.join(HOMEPATH,'support\\_mountzlib.py'), os.path.join(HOMEPATH,'support\\useUnicode.py'), 'dupefind.py'],
-             pathex=['C:\\dupefind'])
+import os, sys
+__dir__ = os.path.dirname(os.path.realpath(__file__))
+a = Analysis([os.path.join(HOMEPATH,'support\\_mountzlib.py'), os.path.join(HOMEPATH,'support\\useUnicode.py'), 'dupefind.py'])
 pyz = PYZ(a.pure)
 exe = EXE(pyz,
           a.scripts,
