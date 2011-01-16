@@ -57,7 +57,8 @@ def recursive_file_list(dir, on_exception=None):
         for basename in os.listdir(dir):
             p = os.path.join(dir, basename)
             if os.path.isdir(p):
-                subfolders.append(p)
+                if not os.path.islink(p) and not is_win32_reparsepoint(p):
+                    subfolders.append(p)
             else:
                 yield p
         for f in subfolders:
@@ -99,7 +100,7 @@ def files_with_info(dir, on_exception=None):
         try:
             f = open(file, "rb")
             while True:
-                data = f.read(4096) #4MB chunks
+                data = f.read(16*1096) #16MB chunks
                 if not data:
                     break
                 for h in hashobjs:
@@ -303,7 +304,20 @@ def nodupe_copy(hashstream, dest_dir, choice_func=None, fn_collision_func=None, 
                 else:
                     logging.info(u"DRY: copy %s to %s", fileentry.path, dest)
                     
-        
+def is_win32_reparsepoint(fn):
+    """Reparsepoint can be a junction, etc. Basically symlinks."""
+    if sys.platform != 'win32':
+        return False
+    INVALID_FILE_ATTRIBUTES = -1
+    FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+    import ctypes
+    attr = ctypes.windll.kernel32.GetFileAttributesW(unicode(fn))
+    if attr == INVALID_FILE_ATTRIBUTES:
+        raise ctypes.WinError()
+    if attr & FILE_ATTRIBUTE_REPARSE_POINT:
+        return True
+    return False
+    
 def main(argv):
     log = logging.getLogger('main')
     parser = OptionParser()
