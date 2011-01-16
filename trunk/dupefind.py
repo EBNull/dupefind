@@ -67,7 +67,30 @@ def recursive_file_list(dir, on_exception=None):
         log.exception("Exception in recursive_file_list")
         if callable(on_exception):
             on_exception(dir, sys.exc_info())
-                
+
+def open_file_for_backup_win32(fn):
+    import ctypes
+    GENERIC_READ = 0x80000000
+    GENERIC_WRITE = 0x40000000
+    FILE_SHARE_DELETE = 0x00000004
+    FILE_SHARE_READ = 0x00000001
+    FILE_SHARE_WRITE = 0x00000002
+    FILE_FLAG_BACKUP_SEMANTICS = 0x2000000
+    OPEN_EXISTING = 3
+    INVALID_HANDLE_VALUE = -1
+    class FILETIME(ctypes.Structure):
+        _fields_ = [
+            ("low", ctypes.c_ulong),
+            ("high", ctypes.c_ulong),
+        ]
+    ctime, mtime, atime = FILETIME(), FILETIME(), FILETIME()
+    hFile = ctypes.windll.kernel32.CreateFileW(unicode(fn), GENERIC_READ, FILE_SHARE_READ, None, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, None)
+    if hFile == INVALID_HANDLE_VALUE:
+        raise ctypes.WinError()
+    import msvcrt
+    c_fh = msvcrt.open_osfhandle(hFile, os.O_RDONLY)
+    return os.fdopen(c_fh, 'rb')
+    
 def files_with_info(dir, on_exception=None):
     """Generator yielding information about each file in a directory"""
     dir = os.path.realpath(dir)
@@ -160,7 +183,46 @@ def fn_collision_rename(destfile):
         dest = u"%s%s%s"%(full_p, middle, full_ext)
         if not os.path.exists(dest):
             return dest
-
+            
+def get_privileges_win32(priv):
+    import ctypes
+    from ctypes.wintypes import DWORD, LONG, HANDLE
+    kernel32 = ctypes.windll.kernel32
+    advapi32 = ctypes.windll.advapi32
+    TOKEN_ADJUST_PRIVILEGES = 0x20
+    TOKEN_QUERY = 0x8
+    SE_PRIVILEGE_ENABLED = 0x2
+    class LUID(ctypes.Structure):
+        _fields_ = [
+            ('LowPart', DWORD),
+            ('HighPart', LONG),
+        ]
+    class LUID_AND_ATTRIBUTES(ctypes.Structure):
+        _fields_ = [
+            ('Luid', LUID),
+            ('Attributes', DWORD),
+        ]
+    class TOKEN_PRIVILEGES(ctypes.Structure):
+        _fields_ = [
+            ('PrivilegeCount', DWORD),
+            ('Privileges', LUID_AND_ATTRIBUTES * 1),
+        ]
+    hToken = HANDLE()
+    luid = LUID()
+    token_state = TOKEN_PRIVILEGES()
+    if not advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES, ctypes.byref(hToken)):
+        raise ctypes.WinError()
+    try:
+        if not advapi32.LookupPrivilegeValueA(None, priv, ctypes.byref(luid)):
+            raise ctypes.WinError()
+        token_state.PrivilegeCount = 1
+        token_state.Privileges[0].Luid = luid
+        token_state.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED
+        if not advapi32.AdjustTokenPrivileges(hToken, 0, ctypes.byref(token_state), 0, 0, 0):
+            raise ctypes.WinError()
+    finally:
+        kernel32.CloseHandle(hToken)
+            
 def copy_file_creation_time_win32(src, dest):
     #shutil.copy2 doesn't copy the created date properly
     import ctypes
@@ -196,6 +258,18 @@ def copy_file_creation_time_win32(src, dest):
         raise ctypes.WinError()
     ctypes.windll.kernel32.CloseHandle(hFile)
 
+def filecopy(src, dest):
+    if sys.platform == 'win32':
+        open_src = open_file_for_backup_win32(src)
+    else:
+        open_src = open(src, 'rb')
+    with open_src as fsrc:
+        with open(dest, 'wb') as fdst:
+            shutil.copyfileobj(fsrc, fdst)
+    shutil.copystat(src, dest)
+    if sys.platform == 'win32':
+        copy_file_creation_time_win32(src, dest)
+    
 def nodupe_copy(hashstream, dest_dir, choice_func=None, fn_collision_func=None, dry_run=True):
     log = logging.getLogger('nodupe_copy')
     if not choice_func:
@@ -225,14 +299,13 @@ def nodupe_copy(hashstream, dest_dir, choice_func=None, fn_collision_func=None, 
                         os.makedirs(os.path.dirname(dest))
                         if sys.platform == 'win32':
                             copy_file_creation_time_win32(os.path.dirname(fileentry.path), os.path.dirname(dest))
-                    shutil.copy2(fileentry.path, dest)
-                    if sys.platform == 'win32':
-                        copy_file_creation_time_win32(fileentry.path, dest)
+                    filecopy(fileentry.path, dest)
                 else:
                     logging.info(u"DRY: copy %s to %s", fileentry.path, dest)
                     
         
 def main(argv):
+    log = logging.getLogger('main')
     parser = OptionParser()
     parser.add_option("-c", "--hash", action="store_true", default=False, dest="action_hash", help='Create hashfile csv')
     parser.add_option("-d", "--duplicates", action="store_true", default=False, dest="action_duplicates", help='Filter hashfile csv for duplicates')
@@ -262,6 +335,14 @@ def main(argv):
         outfile = sys.stdout
     else:
         outfile = open(options.output_filename, "wb")
+        
+    if sys.platform == "win32":
+        try:
+            get_privileges_win32("SeBackupPrivilege")
+        except Exception:
+            log.exception("Couldn't aquire SeBackupPrivilege")
+        else:
+            log.info("Aquired SeBackupPrivilege")
         
     if options.action_hash:
         create_hashfile(unicode(args[1]), outfile)
