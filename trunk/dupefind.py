@@ -23,6 +23,7 @@ FileEntry = namedtuple('FileEntry', [
     'md5',
     'sha1',
 ])
+ISO_FMT = "%Y-%m-%d %H:%M:%S.%f"
 def fe_to_unicode(fe):
     fe = FileEntry(*fe)
     return FileEntry(
@@ -33,9 +34,9 @@ def fe_to_unicode(fe):
         fe.ctime,
         fe.mtime,
         fe.atime,
-        fe.ctime_dt.decode('utf-8'),
-        fe.mtime_dt.decode('utf-8'),
-        fe.atime_dt.decode('utf-8'),
+        None if not fe.ctime_dt else datetime.strftime(fe.ctime_dt, ISO_FMT),
+        None if not fe.mtime_dt else datetime.strftime(fe.mtime_dt, ISO_FMT),
+        None if not fe.atime_dt else datetime.strftime(fe.atime_dt, ISO_FMT),
         fe.md5,
         fe.sha1,
     )
@@ -48,9 +49,9 @@ def fe_to_utf8(fe):
         fe.ctime,
         fe.mtime,
         fe.atime,
-        fe.ctime_dt.encode('utf-8'),
-        fe.mtime_dt.encode('utf-8'),
-        fe.atime_dt.encode('utf-8'),
+        str(fe.ctime_dt) if fe.ctime_dt else '',
+        str(fe.mtime_dt) if fe.mtime_dt else '',
+        str(fe.atime_dt) if fe.atime_dt else '',
         fe.md5,
         fe.sha1,
     )
