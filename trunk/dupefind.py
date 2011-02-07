@@ -17,6 +17,9 @@ FileEntry = namedtuple('FileEntry', [
     'ctime',
     'mtime',
     'atime',
+    'ctime_dt',
+    'mtime_dt',
+    'atime_dt',
     'md5',
     'sha1',
 ])
@@ -30,6 +33,9 @@ def fe_to_unicode(fe):
         fe.ctime,
         fe.mtime,
         fe.atime,
+        fe.ctime_dt.decode('utf-8'),
+        fe.mtime_dt.decode('utf-8'),
+        fe.atime_dt.decode('utf-8'),
         fe.md5,
         fe.sha1,
     )
@@ -42,6 +48,9 @@ def fe_to_utf8(fe):
         fe.ctime,
         fe.mtime,
         fe.atime,
+        fe.ctime_dt.encode('utf-8'),
+        fe.mtime_dt.encode('utf-8'),
+        fe.atime_dt.encode('utf-8'),
         fe.md5,
         fe.sha1,
     )
@@ -79,12 +88,6 @@ def open_file_for_backup_win32(fn):
     FILE_FLAG_BACKUP_SEMANTICS = 0x2000000
     OPEN_EXISTING = 3
     INVALID_HANDLE_VALUE = -1
-    class FILETIME(ctypes.Structure):
-        _fields_ = [
-            ("low", ctypes.c_ulong),
-            ("high", ctypes.c_ulong),
-        ]
-    ctime, mtime, atime = FILETIME(), FILETIME(), FILETIME()
     hFile = ctypes.windll.kernel32.CreateFileW(unicode(fn), GENERIC_READ, FILE_SHARE_READ, None, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, None)
     if hFile == INVALID_HANDLE_VALUE:
         raise ctypes.WinError()
@@ -117,14 +120,22 @@ def files_with_info(dir, on_exception=None):
         prefix = os.path.relpath(os.path.dirname(file), dir)
         if prefix == '.':
             prefix = ''
+        def from_timestamp(t):
+            try:
+                return datetime.datetime.fromtimestamp(t)
+            except ValueError:
+                return None
         yield FileEntry(
             prefix,
             os.path.dirname(file),
             file,
             os.path.getsize(file),
-            datetime.datetime.fromtimestamp(os.path.getctime(file)),
-            datetime.datetime.fromtimestamp(os.path.getmtime(file)),
-            datetime.datetime.fromtimestamp(os.path.getatime(file)),
+            os.path.getctime(file),
+            os.path.getmtime(file),
+            os.path.getatime(file),
+            from_timestamp(os.path.getctime(file)),
+            from_timestamp(os.path.getmtime(file)),
+            from_timestamp(os.path.getatime(file)),
             hashes[0],
             hashes[1],
         )
