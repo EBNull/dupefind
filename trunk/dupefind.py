@@ -23,7 +23,7 @@ FileEntry = namedtuple('FileEntry', [
     'md5',
     'sha1',
 ])
-ISO_FMT = "%Y-%m-%d %H:%M:%S.%f"
+ISO_FMT = "%Y-%m-%d %H:%M:%S"
 def fe_to_unicode(fe):
     fe = FileEntry(*fe)
     return FileEntry(
