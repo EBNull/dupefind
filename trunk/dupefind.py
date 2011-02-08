@@ -295,7 +295,7 @@ def filecopy(src, dest):
     if sys.platform == 'win32':
         copy_file_creation_time_win32(src, dest)
     
-def nodupe_copy(hashstream, dest_dir, choice_func=None, fn_collision_func=None, dry_run=True):
+def nodupe_copy(hashstream, dest_dir, choice_func=None, fn_collision_func=None, dry_run=True, continue_on_error=False):
     log = logging.getLogger('nodupe_copy')
     if not choice_func:
         choice_func = choice_latest_mtime_drop_dupes
@@ -324,7 +324,12 @@ def nodupe_copy(hashstream, dest_dir, choice_func=None, fn_collision_func=None, 
                         os.makedirs(os.path.dirname(dest))
                         if sys.platform == 'win32':
                             copy_file_creation_time_win32(os.path.dirname(fileentry.path), os.path.dirname(dest))
-                    filecopy(fileentry.path, dest)
+                    try:
+                        filecopy(fileentry.path, dest)
+                    except Exception:
+                        log.exception("Couldn't copy %s to %s"%(fileentry.path, dest))
+                        if not continue_on_error:
+                            raise
                 else:
                     logging.info(u"DRY: copy %s to %s", fileentry.path, dest)
                     
@@ -348,6 +353,7 @@ def main(argv):
     parser.add_option("-c", "--hash", action="store_true", default=False, dest="action_hash", help='Create hashfile csv')
     parser.add_option("-d", "--duplicates", action="store_true", default=False, dest="action_duplicates", help='Filter hashfile csv for duplicates')
     parser.add_option("",   "--nodupe_copy", action="store_true", default=False, dest="action_nodupe_copy", help='Copy files from hashfile, eliminating duplicates, to dest')
+    parser.add_option("",   "--continue_on_error", action="store_true", default=False, dest="continue_on_error", help='Big try/except over each file copy')
     parser.add_option("",   "--dry", action="store_true", default=False, dest="dry_run", help="Don't copy anything")
     
     parser.add_option("-o", "--out", action="store", type="string", dest="output_filename")
@@ -392,7 +398,7 @@ def main(argv):
     if options.action_nodupe_copy:
         log.info(u"Copying without dupes from %s to %s", unicode(args[1]), unicode(args[2]))
         infile = open(unicode(args[1]), "rb")
-        nodupe_copy(infile, unicode(args[2]), dry_run=options.dry_run)
+        nodupe_copy(infile, unicode(args[2]), dry_run=options.dry_run, continue_on_error=options.continue_on_error)
     
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
