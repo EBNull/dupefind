@@ -34,9 +34,9 @@ def fe_to_unicode(fe):
         fe.ctime,
         fe.mtime,
         fe.atime,
-        None if not fe.ctime_dt else datetime.strftime(fe.ctime_dt, ISO_FMT),
-        None if not fe.mtime_dt else datetime.strftime(fe.mtime_dt, ISO_FMT),
-        None if not fe.atime_dt else datetime.strftime(fe.atime_dt, ISO_FMT),
+        None if not fe.ctime_dt else datetime.strptime(fe.ctime_dt, ISO_FMT),
+        None if not fe.mtime_dt else datetime.strptime(fe.mtime_dt, ISO_FMT),
+        None if not fe.atime_dt else datetime.strptime(fe.atime_dt, ISO_FMT),
         fe.md5,
         fe.sha1,
     )
