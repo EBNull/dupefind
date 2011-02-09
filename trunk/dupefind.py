@@ -5,6 +5,7 @@ import datetime
 import csv
 import logging
 import shutil
+import ctypes
 
 from optparse import OptionParser
 
@@ -70,7 +71,7 @@ def fe_to_utf8(fe):
 
 log = logging.getLogger()
 
-def recursive_file_list(dir, on_exception=None):
+def recursive_file_list(dir, on_exception=None, keep_dirs=False):
     """Breadth-first search of directory yeilding full paths"""
     dir = unicode(dir)
     dir = os.path.realpath(dir)
@@ -81,6 +82,8 @@ def recursive_file_list(dir, on_exception=None):
             if os.path.isdir(p):
                 if not os.path.islink(p) and not is_win32_reparsepoint(p):
                     subfolders.append(p)
+                if keep_dirs:
+                    yield p
             else:
                 yield p
         for f in subfolders:
@@ -247,41 +250,86 @@ def get_privileges_win32(priv):
             raise ctypes.WinError()
     finally:
         kernel32.CloseHandle(hToken)
+
+
+GENERIC_READ = 0x80000000
+GENERIC_WRITE = 0x40000000
+FILE_SHARE_DELETE = 0x00000004
+FILE_SHARE_READ = 0x00000001
+FILE_SHARE_WRITE = 0x00000002
+FILE_FLAG_BACKUP_SEMANTICS = 0x2000000
+OPEN_EXISTING = 3
+FILE_ATTRIBUTE_NORMAL = 128
+INVALID_HANDLE_VALUE = -1
+class FILETIME(ctypes.Structure):
+    _fields_ = [
+        ("low", ctypes.c_ulong),
+        ("high", ctypes.c_ulong),
+    ]
+    def __lt__(self, other):
+        if self.high > other.high:
+            return True
+        if self.high < other.high:
+            return False
+        if self.low > other.low:
+            return True
+        return False
+class FileTimePreserver(object):
+    def __new__(cls, filename):
+        klass = cls
+        if sys.platform == 'win32':
+            klass = FileTimesWin32
+        i = super(cls, cls).__new__(klass, filename)
+        if klass != cls:
+            i.__init__(filename)
+        return i
+    def __init__(self, filename):
+        pass
+    def __enter__(self):
+        pass
+    def __exit__(self, exctype, exc, tb):
+        pass
+        
+class FileTimesWin32(FileTimePreserver):
+    """When used as a context manager, rewrites a file's times on exit"""
+    def __init__(self, filename):
+        self.filename=filename
+    
+    def __enter__(self):
+        self._times = self.read_file_times(self.filename)
+        return self
+    def __exit__(self, exctype, exc, tb):
+        if not exc:
+            self.write_file_times(self.filename, *self._times)
             
+    @staticmethod
+    def read_file_times(filename):
+        ctime, mtime, atime = FILETIME(), FILETIME(), FILETIME()
+        hFile = ctypes.windll.kernel32.CreateFileW(unicode(filename), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, None, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, None)
+        if hFile == INVALID_HANDLE_VALUE:
+            raise ctypes.WinError()
+        if not ctypes.windll.kernel32.GetFileTime(hFile, ctypes.byref(ctime), ctypes.byref(atime), ctypes.byref(mtime)):
+            err = ctypes.WinError()
+            ctypes.windll.kernel32.CloseHandle(hFile)
+            raise err
+        ctypes.windll.kernel32.CloseHandle(hFile)
+        return ctime, mtime, atime
+        
+    @staticmethod
+    def write_file_times(filename, ctime, mtime, atime):
+        hFile = ctypes.windll.kernel32.CreateFileW(unicode(filename), GENERIC_WRITE, FILE_SHARE_READ, None, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, None)
+        if hFile == INVALID_HANDLE_VALUE:
+            raise ctypes.WinError()
+        if not ctypes.windll.kernel32.SetFileTime(hFile, ctypes.byref(ctime), ctypes.byref(atime), ctypes.byref(mtime)):
+            err = ctypes.WinError()
+            ctypes.windll.kernel32.CloseHandle(hFile)
+            raise err
+        ctypes.windll.kernel32.CloseHandle(hFile)
+        
 def copy_file_creation_time_win32(src, dest):
     #shutil.copy2 doesn't copy the created date properly
-    import ctypes
-    GENERIC_READ = 0x80000000
-    GENERIC_WRITE = 0x40000000
-    FILE_SHARE_DELETE = 0x00000004
-    FILE_SHARE_READ = 0x00000001
-    FILE_SHARE_WRITE = 0x00000002
-    FILE_FLAG_BACKUP_SEMANTICS = 0x2000000
-    OPEN_EXISTING = 3
-    FILE_ATTRIBUTE_NORMAL = 128
-    INVALID_HANDLE_VALUE = -1
-    class FILETIME(ctypes.Structure):
-        _fields_ = [
-            ("low", ctypes.c_ulong),
-            ("high", ctypes.c_ulong),
-        ]
-    ctime, mtime, atime = FILETIME(), FILETIME(), FILETIME()
-    hFile = ctypes.windll.kernel32.CreateFileW(unicode(src), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, None, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, None)
-    if hFile == INVALID_HANDLE_VALUE:
-        raise ctypes.WinError()
-    if not ctypes.windll.kernel32.GetFileTime(hFile, ctypes.byref(ctime), ctypes.byref(atime), ctypes.byref(mtime)):
-        err = ctypes.WinError()
-        ctypes.windll.kernel32.CloseHandle(hFile)
-        raise ctypes.WinError()
-    ctypes.windll.kernel32.CloseHandle(hFile)
-    hFile = ctypes.windll.kernel32.CreateFileW(unicode(dest), GENERIC_WRITE, FILE_SHARE_READ, None, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, None)
-    if hFile == INVALID_HANDLE_VALUE:
-        raise ctypes.WinError()
-    if not ctypes.windll.kernel32.SetFileTime(hFile, ctypes.byref(ctime), ctypes.byref(atime), ctypes.byref(mtime)):
-        err = ctypes.WinError()
-        ctypes.windll.kernel32.CloseHandle(hFile)
-        raise ctypes.WinError()
-    ctypes.windll.kernel32.CloseHandle(hFile)
+    ctime, mtime, atime = FileTimesWin32.read_file_times(src)
+    FileTimesWin32.write_file_times(dest, ctime, mtime, atime)
 
 def filecopy(src, dest):
     if sys.platform == 'win32':
@@ -289,8 +337,9 @@ def filecopy(src, dest):
     else:
         open_src = open(src, 'rb')
     with open_src as fsrc:
-        with open(dest, 'wb') as fdst:
-            shutil.copyfileobj(fsrc, fdst)
+        with FileTimePreserver(os.path.dirname(dest)):
+            with open(dest, 'wb') as fdst:
+                shutil.copyfileobj(fsrc, fdst)
     shutil.copystat(src, dest)
     if sys.platform == 'win32':
         copy_file_creation_time_win32(src, dest)
@@ -346,6 +395,22 @@ def is_win32_reparsepoint(fn):
     if attr & FILE_ATTRIBUTE_REPARSE_POINT:
         return True
     return False
+
+def fix_dir_mtimes(root_dir):
+    root_dir = os.path.realpath(root_dir)
+    subpaths = {}
+    for file in recursive_file_list(root_dir):
+        dir = os.path.dirname(file)
+        mtime = FileTimePreserver('').read_file_times(file)[1]
+        while dir != root_dir:
+            dinfo = subpaths.setdefault(dir, [len(os.path.split(dir)), dir, mtime])
+            if dinfo[2] > mtime:
+                dinfo[2] = mtime
+            dir = os.path.dirname(dir)
+    for dirdepth, dir, mtime in sorted(subpaths.values()):
+        with FileTimePreserver(dir) as fp:
+            fp._times = list(fp._times)
+            fp._times[1] = mtime
     
 def main(argv):
     log = logging.getLogger('main')
@@ -354,13 +419,14 @@ def main(argv):
     parser.add_option("-d", "--duplicates", action="store_true", default=False, dest="action_duplicates", help='Filter hashfile csv for duplicates')
     parser.add_option("",   "--nodupe_copy", action="store_true", default=False, dest="action_nodupe_copy", help='Copy files from hashfile, eliminating duplicates, to dest')
     parser.add_option("",   "--continue_on_error", action="store_true", default=False, dest="continue_on_error", help='Big try/except over each file copy')
+    parser.add_option("",   "--fix_dir_times", action="store_true", default=False, dest="action_fix_dir_times", help="Set each directory's mtime to the latest mtime of it's contents")
     parser.add_option("",   "--dry", action="store_true", default=False, dest="dry_run", help="Don't copy anything")
     
     parser.add_option("-o", "--out", action="store", type="string", dest="output_filename")
     
     (options, args) = parser.parse_args(argv)
     
-    saw_action = (getattr(options, attr) for attr in ("action_hash", "action_duplicates", "action_nodupe_copy"))
+    saw_action = (getattr(options, attr) for attr in ("action_hash", "action_duplicates", "action_nodupe_copy", "action_fix_dir_times"))
     if not any(saw_action):
         parser.print_help()
         sys.stderr.write("\nNeed at least one action.\n\n")
@@ -388,6 +454,10 @@ def main(argv):
         else:
             log.debug("Aquired SeBackupPrivilege")
         
+        
+    if options.action_fix_dir_times:
+        log.info(u"Fixing directory mtime starting at %s", unicode(args[1]))
+        fix_dir_mtimes(unicode(args[1]))
     if options.action_hash:
         log.info(u"Creating hashfile from %s", unicode(args[1]))
         create_hashfile(unicode(args[1]), outfile)
